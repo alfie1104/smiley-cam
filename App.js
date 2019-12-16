@@ -4,15 +4,19 @@ import {
   View,
   ActivityIndicator,
   Dimensions,
-  TouchableOpacity
+  TouchableOpacity,
+  Platform
 } from "react-native";
 import { Camera } from "expo-camera";
 import * as FaceDetector from "expo-face-detector";
 import * as Permissions from "expo-permissions";
+import * as MediaLibrary from "expo-media-library";
 import styled from "styled-components";
 import { MaterialIcons } from "@expo/vector-icons";
 
 const { width, height } = Dimensions.get("window");
+
+const ALBUM_NAME = "Smiley Cam";
 
 const CenterView = styled.View`
   flex: 1;
@@ -31,11 +35,15 @@ const IconBar = styled.View`
 `;
 
 export default class App extends React.Component {
-  state = {
-    hasPermission: null,
-    cameraType: Camera.Constants.Type.front,
-    smileDetected: false
-  };
+  constructor(props) {
+    super(props);
+    this.state = {
+      hasPermission: null,
+      cameraType: Camera.Constants.Type.front,
+      smileDetected: false
+    };
+    this.cameraRef = React.createRef();
+  }
 
   componentDidMount = async () => {
     const { status } = await Permissions.askAsync(Permissions.CAMERA);
@@ -64,6 +72,7 @@ export default class App extends React.Component {
               detectLandmarks: FaceDetector.Constants.Landmarks.all,
               runClassifications: FaceDetector.Constants.Classifications.all
             }}
+            ref={this.cameraRef}
           />
           <IconBar>
             <TouchableOpacity onPress={this.switchCameraType}>
@@ -114,8 +123,60 @@ export default class App extends React.Component {
         this.setState({
           smileDetected: true
         });
-        console.log("take photo");
+        this.takePhoto();
       }
+    }
+  };
+
+  takePhoto = async () => {
+    try {
+      if (this.cameraRef.current) {
+        let { uri } = await this.cameraRef.current.takePictureAsync({
+          quality: 1
+        });
+        if (uri) {
+          this.savePhoto(uri);
+        }
+      }
+    } catch (error) {
+      alert(error);
+      this.setState({
+        smileDetected: false
+      });
+    }
+  };
+
+  savePhoto = async uri => {
+    try {
+      const { status } = await Permissions.askAsync(Permissions.CAMERA_ROLL);
+      if (status === "granted") {
+        const asset = await MediaLibrary.createAssetAsync(uri);
+        let album = await MediaLibrary.getAlbumAsync(ALBUM_NAME);
+        if (album === null) {
+          album = await MediaLibrary.createAlbumAsync(ALBUM_NAME, asset);
+          if (Platform.OS !== "ios") {
+            await MediaLibrary.deleteAssetsAsync([asset]);
+          }
+        } else {
+          await MediaLibrary.addAssetsToAlbumAsync([asset], album.id);
+          if (Platform.OS !== "ios") {
+            await MediaLibrary.deleteAssetsAsync([asset]);
+          }
+        }
+        setTimeout(
+          () =>
+            this.setState({
+              smileDetected: false
+            }),
+          2000
+        );
+      } else {
+        this.setState({
+          hasPermission: false
+        });
+      }
+    } catch (error) {
+      console.log(error);
     }
   };
 }
